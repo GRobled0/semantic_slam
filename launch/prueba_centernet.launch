@@ -1,0 +1,23 @@
+<!--launch file -->
+<launch>
+	
+	<!--arg name="bagfile" default="/media/guillermo/60F9-DB6E/entire_lab_3_rounds.bag"/--> 
+
+	<!-- Play the bagfile -->
+  <!--node pkg="rosbag" type="play" name="rosbag" args=" --clock $(arg bagfile)" /-->
+	
+  <!--CenterNet detector -->
+  <!--node name="detector" pkg="centernet_ros" type="detector.py"/ -->
+	
+  <!--launching the semantic slam node -->	
+	<node name="semantic_graph_SLAM_node" pkg="semantic_SLAM" type="semantic_graph_SLAM_node" output="screen">
+	 <rosparam file="$(find semantic_SLAM)/cfg/centernet_test.yaml" command="load"/>
+         <param name="use_centernet" type="bool" value="true" />
+         <param name="verbose" type="bool" value="true" />				
+	</node>
+
+	<!--static tf of the camera to base_link-->
+  <node pkg="tf" type="static_transform_publisher" name="cam_optical_to_cam" args="0 0 0 -0.2840155 0 0 0.9588197 camera camera_color_optical_frame 0" />
+  <node pkg="tf" type="static_transform_publisher" name="cam_to_base_link" args="0 0 0 -0.5 0.499999999998 -0.5 0.50000000000 base_link camera 0" />
+  
+</launch>

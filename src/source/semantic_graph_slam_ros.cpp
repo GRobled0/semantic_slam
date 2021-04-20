@@ -1,4 +1,11 @@
 #include "semantic_graph_slam_ros.h"
+#define FX 616.278991692188
+#define FY 616.2636108398438
+#define CX 321.338623046875
+#define CY 240.1722412109375
+#define HSIZE 640
+#define VSIZE 480
+#define PI 3.14159265359
 
 semantic_graph_slam_ros::semantic_graph_slam_ros()
 //    : sync(SyncPolicy(10))
@@ -19,6 +26,9 @@ void semantic_graph_slam_ros::init(ros::NodeHandle n)
     first_gt_pose_  = false;
     first_jack_pose_= false;
     verbose_        = false;
+    verbose_        = true;
+
+    use_centernet_ = false;
 
     robot_pose_array_.poses.clear();
     vio_pose_array_.poses.clear();
@@ -39,6 +49,8 @@ void semantic_graph_slam_ros::init(ros::NodeHandle n)
     ros::param::param<bool>("~use_rtab_map_odom", use_rtab_map_odom_, false);
     ros::param::param<bool>("~compute_txt_for_ate", compute_txt_for_ate_, false);
 
+    ros::param::param<bool>("~use_centernet", use_centernet_, false);
+
 
     std::cout << "should save graph: " << save_graph_ << std::endl;
     std::cout << "saving graph path: " << save_graph_path_ << std::endl;
@@ -48,8 +60,10 @@ void semantic_graph_slam_ros::init(ros::NodeHandle n)
     std::cout << "using rtab map odom " << use_rtab_map_odom_ << std::endl;
     std::cout << "computing txt for ate " << compute_txt_for_ate_ << std::endl;
 
+    std::cout << "using centernet " << use_centernet_ << std::endl;
+
     semantic_gslam_obj_.reset(new semantic_graph_slam());
-    semantic_gslam_obj_->init(verbose_);
+    semantic_gslam_obj_->init(verbose_, use_centernet_);
 
     //publisher thread
     //semantic_mapping_pub_th_ = new std::thread(&semantic_graph_slam_ros::publish3DPointMap, this);
@@ -98,13 +112,16 @@ void semantic_graph_slam_ros::open(ros::NodeHandle n)
     //    sync.registerCallback(boost::bind(&semantic_graph_slam::synMsgsCallback, this, _1, _2, _3));
 
     //subscribers
-    rvio_odom_pose_sub_         = n.subscribe("/rovio/odometry", 1, &semantic_graph_slam_ros::rovioVIOCallback, this);
+    rvio_odom_pose_sub_         = n.subscribe("/vins_estimator/odometry", 1, &semantic_graph_slam_ros::rovioVIOCallback, this);
     snap_odom_pose_sub_         = n.subscribe("/SQ04/snap_vislam/vislam/pose", 1, &semantic_graph_slam_ros::snapVIOCallback, this);
     orb_slam_pose_sub_          = n.subscribe("orb_slam/pose", 1, &semantic_graph_slam_ros::orbslamPoseCallback, this);
     jackal_odom_pose_sub_       = n.subscribe("/JA01/odometry/filtered",1, &semantic_graph_slam_ros::jackalOdomCallback, this);
-    cloud_sub_                  = n.subscribe("/depth_registered/points",1,&semantic_graph_slam_ros::PointCloudCallback, this);
-    detected_object_sub_        = n.subscribe("/darknet_ros/bounding_boxes",1, &semantic_graph_slam_ros::detectedObjectDarknetCallback, this);
-    simple_detected_object_sub_ = n.subscribe("/image_processed/bounding_boxes",1, &semantic_graph_slam_ros::detectedObjectSimpleCallback, this);
+    if(!use_centernet_){
+        cloud_sub_                  = n.subscribe("/depth_registered/points",1,&semantic_graph_slam_ros::PointCloudCallback, this);
+        detected_object_sub_        = n.subscribe("/darknet_ros/bounding_boxes",1, &semantic_graph_slam_ros::detectedObjectDarknetCallback, this);
+        simple_detected_object_sub_ = n.subscribe("/image_processed/bounding_boxes",1, &semantic_graph_slam_ros::detectedObjectSimpleCallback, this);
+    }
+    else     centernet_sub_             = n.subscribe("/centernet/detections",1, &semantic_graph_slam_ros::centernetSubCallback, this);
     optitrack_pose_sub_         = n.subscribe("/vrpn_client_node/realsense/pose",1,&semantic_graph_slam_ros::optitrackPoseCallback, this);
     vicon_pose_sub_             = n.subscribe("/SQ04/vicon",1, &semantic_graph_slam_ros::viconPoseSubCallback, this);
 
@@ -129,6 +146,72 @@ void semantic_graph_slam_ros::open(ros::NodeHandle n)
 //{
 //    std::cout << "odom msg " << odom_msg << std::endl;
 //}
+
+
+
+//CALLBACK PARA CENTERNET
+void semantic_graph_slam_ros::centernetSubCallback(const semantic_SLAM::BoundingBoxes &msg){
+
+    std::vector<semantic_SLAM::ObjectInfo>  object_info;
+    object_info.resize(msg.bounding_boxes.size());
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointXYZ point;
+
+    double x_rel, y_rel;
+    double x_pixel, y_pixel;
+    double phi, theta;
+
+    for(int i =0; i < msg.bounding_boxes.size(); ++i)
+    {
+        object_info[i].type   = msg.bounding_boxes[i].Class;
+        object_info[i].tl_x   = msg.bounding_boxes[i].xmin;
+        object_info[i].tl_y   = msg.bounding_boxes[i].ymin;
+        object_info[i].height = abs(msg.bounding_boxes[i].ymax - msg.bounding_boxes[i].ymin);
+        object_info[i].width  = abs(msg.bounding_boxes[i].xmax - msg.bounding_boxes[i].xmin);
+        object_info[i].prob   = msg.bounding_boxes[i].probability;
+
+        //x_rel = -(((msg.bounding_boxes[i].xmax + msg.bounding_boxes[i].xmin)/2) - CX);
+        //y_rel = -(((msg.bounding_boxes[i].ymax + msg.bounding_boxes[i].ymin)/2) - CY);
+
+        //theta = atan(y_rel/FY);
+        //theta = (PI/2.0) - theta;
+        //phi = atan(x_rel/FX);
+
+        //point.z = cos(theta) * msg.bounding_boxes[i].depth;
+        //point.y = sin(theta) * sin(phi) * msg.bounding_boxes[i].depth;
+        //point.x = sin(theta) * cos(phi) * msg.bounding_boxes[i].depth;
+
+        x_pixel = ((msg.bounding_boxes[i].xmax + msg.bounding_boxes[i].xmin)/2);
+        y_pixel = ((msg.bounding_boxes[i].ymax + msg.bounding_boxes[i].ymin)/2);
+
+
+        point.z = msg.bounding_boxes[i].depth;
+        point.x = (x_pixel - CX)*point.z/FX;
+        point.y = (y_pixel - CY)*point.z/FY;
+
+        cloud->push_back(point);
+
+        std::cout << "Point x: " << point.x << std::endl;
+        std::cout << "Point y: " << point.y << std::endl;
+        std::cout << "Point z: " << point.z << std::endl;
+
+        std::cout << "Probabilidad: " << msg.bounding_boxes[i].probability << std::endl;
+
+    }
+
+    semantic_gslam_obj_->setDetectedObjectInfo(object_info);
+
+    sensor_msgs::PointCloud2 cloud_msg;
+    pcl::toROSMsg(*cloud.get(),cloud_msg);
+
+    semantic_gslam_obj_->setPointCloudData(cloud_msg);
+    pc_stamp_ = msg.header.stamp;
+    return;
+}
+
+
+
 
 void semantic_graph_slam_ros::rovioVIOCallback(const nav_msgs::Odometry::ConstPtr &odom_msg)
 {

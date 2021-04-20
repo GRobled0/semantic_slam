@@ -12,9 +12,10 @@ semantic_graph_slam::~semantic_graph_slam()
     std::cout << "semantic graph slam destructor " << std::endl;
 }
 
-void semantic_graph_slam::init(bool verbose)
+void semantic_graph_slam::init(bool verbose, bool use_centernet)
 {
     verbose_ = verbose;
+    use_centernet_ = use_centernet;
     //default values
     object_detection_available_        = false;
     point_cloud_available_             = false;
@@ -71,7 +72,10 @@ bool semantic_graph_slam::run()
             if(!new_keyframes_[i]->obj_info.empty())
             {
                 //segmenting and matching keyframes
-                std::vector<landmark> current_landmarks_vec = this->semantic_data_ass(new_keyframes_[i]);
+                //CAMBIADO LA FUNCION PARA QUE NO SEGMENTE PLANOS
+                std::vector<landmark> current_landmarks_vec;
+                if(use_centernet_) current_landmarks_vec = this->semantic_centernet_data_ass(new_keyframes_[i]);
+                else current_landmarks_vec = this->semantic_data_ass(new_keyframes_[i]);
                 //add the segmented landmarks to the graph for the current keyframe
                 this->empty_landmark_queue(current_landmarks_vec,
                                            new_keyframes_[i]);
@@ -223,6 +227,82 @@ std::vector<landmark> semantic_graph_slam::semantic_data_ass(const ps_graph_slam
                                                                                      cam_angle_,
                                                                                      object_info,
                                                                                      point_cloud_msg);
+    if(verbose_)
+        std::cout << "seg_obj_vec size " << seg_obj_vec.size() << std::endl;
+
+
+    std::vector<landmark> current_landmarks_vec = data_ass_obj_->find_matches(seg_obj_vec,
+                                                                              current_robot_pose,
+                                                                              cam_angle_);
+
+    if(verbose_)
+        std::cout << "current_landmarks_vec size " << current_landmarks_vec.size() << std::endl;
+    //this->publishDetectedLandmarks(current_robot_pose, seg_obj_vec);
+    this->setDetectedObjectsPose(seg_obj_vec);
+
+    return current_landmarks_vec;
+
+}
+
+
+std::vector<landmark> semantic_graph_slam::semantic_centernet_data_ass(const ps_graph_slam::KeyFrame::Ptr curr_keyframe)
+{
+
+    std::vector<semantic_SLAM::ObjectInfo> object_info = curr_keyframe->obj_info;
+    sensor_msgs::PointCloud2 point_cloud_msg = curr_keyframe->cloud_msg;
+    Eigen::VectorXf current_robot_pose = ps_graph_slam::matrix2vector(curr_keyframe->robot_pose.matrix().cast<float>());
+    if(verbose_)
+        std::cout << "current robot pose " << current_robot_pose << std::endl;
+
+
+    Eigen::Matrix4f transformation_mat;
+    semantic_tools sem_tool_obj;
+    sem_tool_obj.transformNormalsToWorld(current_robot_pose,
+                                         transformation_mat,
+                                         cam_angle_);
+
+    std::vector<detected_object> seg_obj_vec;
+    seg_obj_vec.clear();
+    detected_object object;
+
+    pcl::PointCloud<pcl::PointXYZ> cloud_data;
+    pcl::fromROSMsg(point_cloud_msg, cloud_data);
+
+    for (int i = 0; i < object_info.size(); ++i){
+        object.id = i;
+        object.prob = object_info[i].prob;
+        object.num_points = 1;
+        object.type = object_info[i].type;
+        object.plane_type = "horizontal";
+
+        object.pose(0) = cloud_data.points[i].x;
+        object.pose(1) = cloud_data.points[i].y;
+        object.pose(2) = cloud_data.points[i].z;
+
+        Eigen::Vector4f normals_of_the_horizontal_plane_in_world, normals_tmp;
+        normals_of_the_horizontal_plane_in_world(0) = 0;
+        normals_of_the_horizontal_plane_in_world(1) = 0;
+        normals_of_the_horizontal_plane_in_world(2) = 1;
+
+        normals_tmp = transformation_mat.transpose().eval() * normals_of_the_horizontal_plane_in_world;
+
+        object.normal_orientation(0) = normals_tmp(0);
+        object.normal_orientation(1) = normals_tmp(1);
+        object.normal_orientation(2) = normals_tmp(2);
+
+        Eigen::Vector4f pose_tmp;
+        pose_tmp(0) = object.pose(0);
+        pose_tmp(1) = object.pose(1);
+        pose_tmp(2) = object.pose(2);
+
+        Eigen::Vector4f point_world_frame = transformation_mat * pose_tmp;
+        object.world_pose << point_world_frame(0) + current_robot_pose(0),
+                             point_world_frame(1) + current_robot_pose(1),
+                             point_world_frame(2) + current_robot_pose(2); 
+        
+        seg_obj_vec.push_back(object);
+    }
+
     if(verbose_)
         std::cout << "seg_obj_vec size " << seg_obj_vec.size() << std::endl;
 

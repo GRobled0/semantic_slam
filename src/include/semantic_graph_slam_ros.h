@@ -99,6 +99,8 @@ private:
 
 private:
     bool verbose_;
+    bool use_centernet_;
+
 
     //test stuff
 private:
@@ -138,6 +140,8 @@ protected:
     ros::Subscriber optitrack_pose_sub_;
     ros::Subscriber vicon_pose_sub_;
 
+    ros::Subscriber centernet_sub_;
+
 protected:
     void rovioVIOCallback(const nav_msgs::OdometryConstPtr &odom_msg);
     void snapVIOCallback(const geometry_msgs::PoseStamped &pose_msg);
@@ -148,6 +152,8 @@ protected:
     void detectedObjectSimpleCallback(const semantic_SLAM::DetectedObjects& msg);
     void optitrackPoseCallback(const nav_msgs::Odometry& msg);
     void viconPoseSubCallback(const semantic_SLAM::ViconState& msg);
+
+    void centernetSubCallback(const semantic_SLAM::BoundingBoxes& msg);
 
     //publishers
 protected:

@@ -30,10 +30,11 @@ public:
 
 public:
     bool run();
-    void init(bool verbose);
+    void init(bool verbose, bool use_centernet);
 
 private:
     bool verbose_;
+    bool use_centernet_;
 
 private:
     std::unique_ptr<point_cloud_segmentation> pc_seg_obj_;
@@ -78,6 +79,8 @@ public:
 private:
     //landmark related functions
     std::vector<landmark> semantic_data_ass(const ps_graph_slam::KeyFrame::Ptr curr_keyframe);
+
+    std::vector<landmark> semantic_centernet_data_ass(const ps_graph_slam::KeyFrame::Ptr curr_keyframe);
 
     void empty_landmark_queue(std::vector<landmark> current_lan_queue,
                               const auto current_keyframe);
