@@ -122,7 +122,34 @@ The detected landmarks in the current frame.
 The configurations of the algorithms can be found inside the cfg folder in order to be changed accordingly.
 
 
+### ANEXO I: CAMBIOS RELEVANTES REALIZADOS
 
+- Se ha cambiado la definición del mensaje BoundingBox.msg añadiendole un float64 con la información de la profundidad.
+
+
+- En semantic_graph_slam_ros.cpp, este script tiene como principal uso la recepción y envío de información:
+
+  - Se han incorporado varias constantes mediante #define con los valores intrínsecos de la cámara RealSense D435I para convertir posición relativa de un objeto en la imagen y la profundidad a coordenadas 3D.
+
+  - Se ha añadido en los ros::param una opción de usar CenterNet.
+
+  - Añadida subscripción al publisher de CenterNet con una función callback, que extrae la coordenadas XYZ de una detección y envía la información de la detección mediante setDetectedObjectInfo(object_info). Por otro lado con las coordenadas XYZ de todas las detecciones en la imagen se crea una nube de puntos donde cada punto es el centroide de la detección y se envía mediante setPointCloudData(cloud_msg).
+
+
+- semantic_graph_slam.cpp, en este script principalmente se procesa la información para posteriormente estimar la trayectoria:
+
+  - En la función semantic_graph_slam::run() se ha añadido la opción de que si está en uso CenterNet se utilice otra función para procesar la información puesto que no hay planos que segmentar sino que cada punto ya es el propio centroide del objeto.
+
+  - Esta función es semantic_centernet_data_ass que recibe el keyframe del momento con la información de cloud_msg y object_info y los une en coordenadas globales en una variable landmark que será la que utilice el algoritmo para la estimación de la trayectoria.
+
+
+### ANEXO II: PROBLEMAS Y SOLUCIONES
+
+En mi ordenador hubo algún problema al instalar las librería que utiliza semantic SLAM así que al final recurrí a la versión de docker que se describe más arriba. Después reemplazaba la versión de dentro del container por la modificada y corría sin problemas.
+
+Otra incidencia que dió algún quebradero de cabeza fue que ROS utiliza de forma nativa python2.7 y CenterNet funciona con python3, se puede correr sin problemas pero es necesario explicitar el uso de python3 para el script.
+
+Sin embargo, al recibir las imagénes publicadas en un tópico se reciben en un formato específico de ROS, para cambiarlo al formato de OpenCV o Numpy utilicé la librería CV_Bridge. Esta librería ROS hace que de forma predeterminada funcione con python2.7 así que al correr el script de CenterNet da ciertas incompatibilidades o dice que no encuentra la librería. Para solucionar esto es necesario explicitar durante la compilación la librería el uso de python3.
 
 
 
